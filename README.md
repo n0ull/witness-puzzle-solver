@@ -2,6 +2,8 @@
 
 This program solves, in real time, color puzzles (3-monitor) and triangle puzzles (maze) from The Witness challenge.
 
+Add shape puzzles and star puzzles support
+
 # How to Use
 
 I tried to keep it as simple as possible, so there are no dependencies or external libraries—just standard Java library classes.

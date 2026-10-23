@@ -1,5 +1,4 @@
 import javax.imageio.ImageIO;
-import java.applet.Applet;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -13,38 +12,60 @@ public class Solver {
 
 
     public static void main(String[] args) {
+        if (args.length == 3 && args[0].equals("--image")) {
+            solve(new File(args[1]), args[2]);
+            return;
+        }
+        if (args.length != 2) {
+            System.out.println("Usage: java Solver <screenshot-folder> <output-folder>\n"
+                    + "   or: java Solver --image <screenshot> <output.png>");
+            return;
+        }
         String screenshotFolderPath = args[0];
         String outFolderPath = args[1];
         System.out.println(screenshotFolderPath);
         System.out.println(outFolderPath);
 
-        File oldest = null;
+        File folder = new File(screenshotFolderPath);
+        if (!folder.isDirectory()) {
+            System.err.println("Screenshot directory does not exist: " + folder);
+            return;
+        }
         File prev = null;
         while (true) {
+            File oldest = null;
             long oldestTimestamp = 0;
-	        File folder = new File(screenshotFolderPath);
-            for (File file : folder.listFiles()) {
-                if (!file.isDirectory()) {
-                    if (file.lastModified() > oldestTimestamp) {
-                        oldestTimestamp = file.lastModified();
-                        oldest = file;
-                    }
+            File[] screenshots = folder.listFiles(file -> file.isFile() && isImage(file));
+            if (screenshots == null) {
+                System.err.println("Cannot read screenshot directory: " + folder);
+                return;
+            }
+            for (File file : screenshots) {
+                if (file.lastModified() > oldestTimestamp) {
+                    oldestTimestamp = file.lastModified();
+                    oldest = file;
                 }
             }
 
             if (oldest != null && (prev == null || !oldest.getPath().equals(prev.getPath())) && (System.currentTimeMillis() - oldest.lastModified() < 1000 * 30)) {
 		        System.out.println(oldest.getName());
-                solve(oldest, outFolderPath + "SOLVED_" + oldest.getName());
+                solve(oldest, new File(outFolderPath, "SOLVED_" + oldest.getName() + ".png").getPath());
                 prev = oldest;
             }
 
             try {
                 TimeUnit.SECONDS.sleep(1);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                return;
             }
 
         }
+    }
+
+    private static boolean isImage(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png");
     }
 
 
@@ -53,7 +74,26 @@ public class Solver {
         BufferedImage colorImage = null;
         try {
             colorImage = ImageIO.read(imageFile);
-            int size = colorImage.getHeight();
+            if (colorImage == null) throw new IOException("Unsupported image: " + imageFile);
+            StarPuzzle stars = StarPuzzle.detect(colorImage);
+            if (stars != null) {
+                ArrayList<Point> path = stars.solve();
+                if (path == null) {
+                    Graphics2D graphics = colorImage.createGraphics();
+                    graphics.setColor(Color.RED);
+                    graphics.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(24, colorImage.getHeight() / 30)));
+                    graphics.drawString("NO SOLUTION", stars.xs[0], Math.max(50, stars.ys[0] - 30));
+                    graphics.dispose();
+                    Utils.saveImage(solutionPath, colorImage);
+                    System.out.println("Panel found, but no solution satisfies all clues: " + solutionPath);
+                    return;
+                }
+                stars.draw(colorImage, path);
+                Utils.saveImage(solutionPath, colorImage);
+                System.out.println("Panel solved: " + path + " -> " + solutionPath);
+                return;
+            }
+            int size = Math.min(colorImage.getWidth(), colorImage.getHeight());
             colorImage = colorImage.getSubimage(colorImage.getWidth() / 2 - size / 2, colorImage.getHeight() / 2 - size / 2, size, size);
             image = Utils.getGrayScale(colorImage);
 
@@ -624,14 +664,11 @@ class Utils {
         }
     }
 
-    public static void saveImage(String filename, BufferedImage image) {
+    public static void saveImage(String filename, BufferedImage image) throws IOException {
         File file = new File(filename);
-        try {
-            ImageIO.write(image, "png", file);
-        } catch (Exception e) {
-            System.out.println(e.toString()+" Image '"+filename
-                    +"' saving failed.");
-        }
+        File parent = file.getAbsoluteFile().getParentFile();
+        if (!parent.isDirectory() && !parent.mkdirs()) throw new IOException("Cannot create output directory: " + parent);
+        if (!ImageIO.write(image, "png", file)) throw new IOException("PNG writer unavailable");
     }
     
     public static BufferedImage getGrayScale(BufferedImage image) {
